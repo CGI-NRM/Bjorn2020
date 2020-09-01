@@ -1,0 +1,130 @@
+---
+title: "Björninventering Jämtland och Västernorrland, 21 augusti-31 oktober 2020"
+output: 
+  flexdashboard::flex_dashboard:
+    theme: readable
+    logo: naturhistoriska-riksmuseet.png
+    orientation: columns
+    vertical_layout: fill
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(readxl)
+library(dplyr)
+library(leaflet)
+library(ggplot2)
+library(wesanderson)
+library(RColorBrewer)
+library(leaflet.extras)
+library(lubridate)
+source("gps_convert.R")
+DNA <- read_excel("Data/Progress.xlsx")
+names(DNA) <- c("Position","TubeID", "RackID", "Streckkod")
+bear <- read_excel("Data/rovbasedata.xlsx")
+names(bear) <- c("Streckkod", "Art", "Provtyp", "Lat", "Long", "Datum", "Kommunnummer", "Kommun", "Lansnummer", "Lan")
+bear <- bear[bear$Lan == "Västernorrlands län (S)" | bear$Lan == "Jämtlands län (S)",]
+DNA <- DNA[!duplicated(DNA$Streckkod),]
+bearmap <- base::merge(bear, DNA, by = "Streckkod", all.x = TRUE)
+bearmap$TubeID[is.na(bearmap$TubeID)] <- 0
+bearmap$TubeID[bearmap$TubeID>1] <- 1
+bearmap$Genotyp <- 0
+
+bearmap <- gps_convert(data = bearmap, latitude = "Lat", longitude = "Long")
+bearmap$Datum <- as.Date(bearmap$Datum)
+
+bearmap$code <- ifelse(bearmap$TubeID + bearmap$Genotyp == 0, yes = "Registrerad", ifelse(bearmap$TubeID + bearmap$Genotyp > 1.9, yes = "DNA från Björn", no = "DNA extraherat"))
+bearmap$code <- factor(bearmap$code, levels = c("Registrerad", "DNA extraherat", "DNA från björn"))
+bearmap[order(as.character(bearmap$code), decreasing = FALSE),]
+
+#bearmap <- bearmap[bearmap$Streckkod != "SEP0156155",]
+#bearmap <- bearmap[bearmap$Streckkod != "SEP0154722",]
+#bearmap <- bearmap[bearmap$Streckkod != "SEP0155441",]
+
+```
+
+```{r}
+getColor <- function(bearmap) {
+  sapply(bearmap$code, function(code) {
+  if(code == "Registrerad") {
+    "gray"
+  } else if(code == "DNA extraherat") {
+    "orange"
+  } else {
+    "green"
+  } })
+}
+
+icons <- awesomeIcons(
+  icon = 'ios-close',
+  iconColor = 'black',
+  library = 'ion',
+  markerColor = getColor(bearmap)
+)
+```
+
+
+
+Column {data-width=650}
+-----------------------------------------------------------------------
+
+### Spillningsprover som inkommit till Naturhistoriska riksmuseet (NRM)
+
+```{r}
+# Mapping colors to the icons is done by eyeballing
+pal <- colorFactor(c("dimgray", "orange", "limegreen") , domain = bearmap$code, ordered = TRUE)
+
+leaflet(bearmap) %>%
+      addProviderTiles(providers$OpenStreetMap,
+                       options = providerTileOptions(noWrap = TRUE)) %>%
+  addAwesomeMarkers(icon=icons, label=~as.character(Streckkod), group = "marker") %>%
+  addLegend( pal=pal, values = ~code, opacity=0.8, title = "Provstatus", position = "bottomleft") %>%
+  addSearchFeatures('marker', options = searchFeaturesOptions(zoom = 9))
+
+```
+
+Column {data-width=350}
+-----------------------------------------------------------------------
+
+### Antal insamlade prover per dag sedan inventeringsstarten den 21 Augusti
+
+```{r}
+ggplot(as.data.frame(bearmap)) + aes(x = Datum) + geom_bar() + scale_y_continuous(name = "Insamlade prover per dag")
+```
+
+### inkomna prover `r Sys.Date()`
+
+```{r}
+Bearsamples <- length(bearmap$code)
+valueBox(Bearsamples,
+	 icon = "fa-clipboard-check",
+	 color = "gray")
+```
+
+### DNA extraherat fram till `r Sys.Date()`
+
+```{r}
+dnaextract <- sum(bearmap$code == "DNA extraherat")
+valueBox(dnaextract,
+	 icon = "fa-dna",
+	 color = "orange")
+
+```
+
+
+### Färdiganalyserade prover `r Sys.Date()`
+
+```{r}
+genotyped <- sum(bearmap$code == "DNA från Björn")
+valueBox(genotyped,
+	 icon = "fa-paw",
+	 color = "green")
+```
+
+```{r}
+#library(waffle)
+#b <- c("Går ej att detektera spår av björn" = 10, "DNA-spår från björn, men ej tillräckligt för individbestämning" = 43, "Går att individbestämma" = 30)
+#waffle(b, rows=3, size = 1, equal = TRUE, 
+#       title="", 
+#       xlab="1 ruta är ett prov")
+```
